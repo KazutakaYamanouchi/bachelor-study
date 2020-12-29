@@ -1,0 +1,1 @@
+main.py --dataset cifar10 -np 2 --info --save -lg ./outputs/cifar10/20201229002443/models/1/generator.pt -ld ./outputs/cifar10/20201229002443/models/1/discriminator.pt

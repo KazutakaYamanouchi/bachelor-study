@@ -1,1 +1,0 @@
-main.py --dataset cifar10 -np 1 --info --save

@@ -1,1 +1,0 @@
-main.py -np 4 --info --save

@@ -1,1 +1,0 @@
-main.py --info --save -np 3 -id 20201231163823 --lg --ld --lod --log -b 100

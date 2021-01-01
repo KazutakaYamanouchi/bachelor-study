@@ -74,7 +74,7 @@ class DLast(nn.Module):
 
 class Discriminator(nn.Module):
     def __init__(
-        self, nz: int, nc: int, num_progress: int,
+        self, num_progress: int,
         ndf: int = 64
     ):
         super().__init__()

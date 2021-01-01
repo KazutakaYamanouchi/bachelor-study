@@ -153,7 +153,6 @@ batch_size = args.batch_size
 num_epochs = args.num_epochs
 num_progress = args.num_progress
 lr_scale = args.lr_scale
-nc = args.dataset
 nz = args.nz
 lr_g = 0.001
 ngf = 64
@@ -231,7 +230,7 @@ logger.info('データローダを生成しました。')
 # モデルの定義
 # =========================================================================== #
 model_g = Generator(
-    nz=nz, nc=nc, ngf=ngf,
+    nz=nz, ngf=ngf,
     num_progress=num_progress - 1
     ).to(device)
 print(model_g.mod_list)
@@ -240,7 +239,7 @@ if args.lg:
     model_g.load_state_dict(torch.load(load_generator), strict=False)
 
 model_d = Discriminator(
-    nz=nz, nc=nc, ndf=ndf,
+    ndf=ndf,
     num_progress=num_progress - 1
     ).to(device)
 model_d.mod_list = model_d.mod_list[::-1]

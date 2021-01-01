@@ -92,7 +92,7 @@ class GFirst(nn.Module):
 
 class Generator(nn.Module):
     def __init__(
-        self, nz: int, nc: int, num_progress: int,
+        self, nz: int, num_progress: int,
         ngf: int = 64
     ):
         super().__init__()

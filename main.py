@@ -27,8 +27,8 @@ from models.generator import Generator
 from models.discriminator import Discriminator
 
 
-def hypersphere(z, radius=1):
-    return z * radius / z.norm(p=2, dim=1, keepdim=True)
+# def hypersphere(z, radius=1):
+#     return z * radius / z.norm(p=2, dim=1, keepdim=True)
 
 
 # コマンドライン引数を取得するパーサー
@@ -44,7 +44,7 @@ parser.add_argument(
 )
 parser.add_argument(
     '-e', '--num-epochs', help='学習エポック数を指定します。',
-    type=int, default=16, metavar='E'
+    type=int, default=50, metavar='E'
 )
 
 parser.add_argument(
@@ -283,7 +283,8 @@ optim_d = torch.optim.Adam(
 if args.lod:
     optim_d.load_state_dict(torch.load(load_optimizer_d))
 
-sample_z = hypersphere(torch.randn(64, nz, 1, 1, device=device))
+# sample_z = hypersphere(torch.randn(64, nz, 1, 1, device=device))
+sample_z = torch.randn(args.num_samples, nz, device=device)
 
 f_results = open(
     OUTPUT_DIR.joinpath('results.csv'), mode='w', encoding='utf-8')
@@ -318,7 +319,8 @@ for epoch in range(num_epochs):
         real_images = real_images.to(device)
         real_images = F.adaptive_avg_pool2d(
             real_images, 4 * 2 ** (num_progress - 1))
-        z = hypersphere(torch.randn(batch_size, nz, 1, 1, device=device))
+        # z = hypersphere(torch.randn(batch_size, nz, 1, 1, device=device))
+        z = torch.randn(batch_size, nz, device=device)
         fake_images = model_g(z)
 
         #######################################################################

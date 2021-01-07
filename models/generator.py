@@ -110,7 +110,8 @@ class Generator(nn.Module):
             self.mod_list.append(self.block2)
 
     def forward(self, z):
+        x0 = z.view(-1, z.size(1), 1, 1)
         for i in range(len(self.mod_list)):
-            z = self.mod_list[i](z)
-        z1 = self.toRGB(z)
-        return z1
+            x0 = self.mod_list[i](x0)
+        x1 = self.toRGB(x0)
+        return x1

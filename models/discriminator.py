@@ -28,7 +28,7 @@ class DBlock(nn.Module):
         self.activation = nn.LeakyReLU(0.2)
 
         self.conv2 = nn.Conv2d(
-            in_channels, out_channels, kernel_size,
+            in_channels, out_channels, kernel_size=kernel_size,
             stride=stride, padding=padding, bias=False)
 
         self.conv1.apply(init_xavier_uniform)
@@ -54,22 +54,27 @@ class DLast(nn.Module):
         self.activation = nn.LeakyReLU(0.2)
 
         self.conv1 = nn.Conv2d(
+            in_channels, in_channels, kernel_size=kernel_size,
+            stride=stride, padding=padding, bias=False)
+
+        self.conv2 = nn.Conv2d(
             in_channels, in_channels, kernel_size=4,
             stride=stride, padding=0, bias=False)
 
-        self.conv2 = nn.Conv2d(
-            in_channels, out_channels, kernel_size=1,
-            stride=stride, padding=0, bias=False)
+        self.linear = nn.Linear(in_channels, out_channels)
 
         self.conv1.apply(init_xavier_uniform)
         self.conv2.apply(init_xavier_uniform)
+        self.linear.apply(init_xavier_uniform)
 
     def forward(self, x):
         x1 = self.conv1(x)
         x2 = self.activation(x1)
         x3 = self.conv2(x2)
         x4 = self.activation(x3)
-        return x4
+        x5 = x4.view(x4.size()[0], -1)
+        x6 = self.linear(x5)
+        return x6
 
 
 class Discriminator(nn.Module):

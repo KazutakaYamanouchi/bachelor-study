@@ -44,7 +44,7 @@ parser.add_argument(
 )
 parser.add_argument(
     '-e', '--num-epochs', help='学習エポック数を指定します。',
-    type=int, default=13, metavar='E'
+    type=int, default=16, metavar='E'
 )
 
 parser.add_argument(
@@ -217,13 +217,19 @@ normalize = transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
 data_transforms.append(normalize)
 logger.info('変換リストに正規化を追加しました。')
 
-dataset = dset.STL10(
-            root=args.data_path, split='train',
+# dataset = dset.STL10(
+#            root=args.data_path, split='train',
+#            transform=transforms.Compose(data_transforms), download=True)
+
+dataset = dset.CIFAR10(
+            root=args.data_path, train=True,
             transform=transforms.Compose(data_transforms), download=True)
 
 dataloader = torch.utils.data.DataLoader(
     dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 logger.info('データローダを生成しました。')
+
+print(len(dataset))
 
 
 # =========================================================================== #
@@ -310,7 +316,8 @@ for epoch in range(num_epochs):
     begin_time = perf_counter()  # 時間計測開始
     for i, (real_images, _) in pbar:
         real_images = real_images.to(device)
-
+        real_images = F.adaptive_avg_pool2d(
+            real_images, 4 * 2 ** (num_progress - 1))
         z = hypersphere(torch.randn(batch_size, nz, 1, 1, device=device))
         fake_images = model_g(z)
 
@@ -377,7 +384,7 @@ for epoch in range(num_epochs):
             sample_images = model_g(sample_z).cpu()
             vutils.save_image(
                 sample_images,
-                sample_dir.joinpath(f'{i}.png'),
+                sample_dir.joinpath(f'{epoch}.png'),
                 nrow=int(np.sqrt(args.num_samples)),
                 range=(-1.0, 1.0)
                 )

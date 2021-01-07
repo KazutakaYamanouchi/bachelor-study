@@ -1,0 +1,1 @@
+main.py --info --save -np 2 -id 20210107023532 --ld --log --lg --lod

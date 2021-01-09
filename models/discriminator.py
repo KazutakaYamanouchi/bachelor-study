@@ -89,16 +89,38 @@ class Discriminator(nn.Module):
                 3, ndf * 8, kernel_size=1, stride=1, padding=0, bias=False),
             nn.LeakyReLU(0.2)
         )
+
+        # (8, 8) -> (4, 4)
+        self.block3 = DBlock(ndf * 8, ndf * 8)
+        # (8, 8) -> (4, 4)
+        self.block2 = DBlock(ndf * 8, ndf * 8)
         # (8, 8) -> (4, 4)
         self.block1 = DBlock(ndf * 8, ndf * 8)
+        # (8, 8) -> (4, 4)
+        self.block0 = DBlock(ndf * 8, ndf * 8)
         # (4, 4) -> (1, 1)
-        self.block2 = DLast(ndf * 8, 1)
+        self.block9 = DLast(ndf * 8, 1)
 
-        self.layer = (nn.Module)
         self.mod_list = nn.ModuleList()
-        for i in range(num_progress):
+
+        if num_progress == 1:
+            self.mod_list.append(self.block0)
+
+        if num_progress == 2:
+            self.mod_list.append(self.block0)
             self.mod_list.append(self.block1)
-        self.mod_list.append(self.block2)
+
+        if num_progress == 3:
+            self.mod_list.append(self.block0)
+            self.mod_list.append(self.block1)
+            self.mod_list.append(self.block2)
+
+        if num_progress == 4:
+            self.mod_list.append(self.block0)
+            self.mod_list.append(self.block1)
+            self.mod_list.append(self.block2)
+            self.mod_list.append(self.block3)
+        self.mod_list.append(self.block9)
 
     def forward(self, z):
         z1 = self.fromRGB(z)

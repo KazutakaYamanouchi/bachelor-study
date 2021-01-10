@@ -98,34 +98,12 @@ class Generator(nn.Module):
         super().__init__()
         # toRGB
         self.toRGB = nn.Conv2d(ngf * 8, 3, kernel_size=1, stride=1, padding=0)
-        # (1, 1) -> (4, 4)
-        self.block9 = GFirst(nz, ngf * 8)
-
-        self.block0 = GBlock(ngf * 8,  ngf * 8)
-        self.block1 = GBlock(ngf * 8,  ngf * 8)
-        self.block2 = GBlock(ngf * 8,  ngf * 8)
-        self.block3 = GBlock(ngf * 8,  ngf * 8)
 
         self.mod_list = nn.ModuleList()
-        self.mod_list.append(self.block9)
 
-        if num_progress == 1:
-            self.mod_list.append(self.block0)
-
-        if num_progress == 2:
-            self.mod_list.append(self.block0)
-            self.mod_list.append(self.block1)
-
-        if num_progress == 3:
-            self.mod_list.append(self.block0)
-            self.mod_list.append(self.block1)
-            self.mod_list.append(self.block2)
-
-        if num_progress == 4:
-            self.mod_list.append(self.block0)
-            self.mod_list.append(self.block1)
-            self.mod_list.append(self.block2)
-            self.mod_list.append(self.block3)
+        self.mod_list.append(GFirst(nz, ngf * 8))
+        for i in range(num_progress):
+            self.mod_list.append(GBlock(ngf * 8,  ngf * 8))
 
     def forward(self, z):
         x0 = z.view(-1, z.size(1), 1, 1)

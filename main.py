@@ -331,14 +331,15 @@ for epoch in range(num_epochs):
         # Real画像についてDを訓練
         pred_d_real = model_d(real_images)
         loss_d_real = F.relu(1.0 - pred_d_real).mean()
-        loss_d_real.backward()
+        # loss_d_real.backward()
 
         # Fake画像についてDを訓練
         pred_d_fake = model_d(fake_images.detach())
         loss_d_fake = F.relu(1.0 + pred_d_fake).mean()
-        loss_d_fake.backward()
+        # loss_d_fake.backward()
 
         loss_d = loss_d_real + loss_d_fake
+        loss_d.backward()
         log_loss_d.append(loss_d.item())
         optim_d.step()
 

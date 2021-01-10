@@ -1,1 +1,0 @@
-main.py --info --save -np 2 -id 20210109125443 --ld --lg -b 100

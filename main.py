@@ -15,6 +15,7 @@ from time import perf_counter
 # 追加モジュール
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.parallel
 import torch.utils.data
@@ -40,7 +41,7 @@ parser = argparse.ArgumentParser(
 # 訓練に関する引数
 parser.add_argument(
     '-b', '--batch-size', help='バッチサイズを指定します。',
-    type=int, default=16, metavar='B'
+    type=int, default=250, metavar='B'
 )
 parser.add_argument(
     '-e', '--num-epochs', help='学習エポック数を指定します。',
@@ -48,7 +49,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    '-np', '--num-progress', help='層の数を指定します。(1~7)',
+    '-np', '--num-progress', help='層の数を指定します。(1~4)',
     type=int, default=1
 )
 
@@ -70,7 +71,7 @@ parser.add_argument(
 
 parser.add_argument(
     '--seed', help='乱数生成器のシード値を指定します。',
-    type=int, default=42
+    type=int, default=999
 )
 
 # 入力に関するコマンドライン引数
@@ -87,7 +88,7 @@ parser.add_argument(
 
 parser.add_argument(
     '--nz', help='潜在空間の次元を指定します。',
-    type=int, default=512
+    type=int, default=256
 )
 
 #   画像生成
@@ -152,6 +153,8 @@ logger = getLogger('main')
 batch_size = args.batch_size
 num_epochs = args.num_epochs
 num_progress = args.num_progress
+workers = 2
+nc = 3
 lr_scale = args.lr_scale
 nz = args.nz
 lr_g = 0.001
@@ -226,7 +229,8 @@ dataset = dset.CIFAR10(
             transform=transforms.Compose(data_transforms), download=True)
 
 dataloader = torch.utils.data.DataLoader(
-    dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    dataset, batch_size=batch_size,
+    shuffle=True, drop_last=True, num_workers=workers)
 logger.info('データローダを生成しました。')
 
 print(len(dataset))
@@ -242,18 +246,36 @@ model_g = Generator(
 print(model_g.mod_list)
 # パラメータのロード
 if args.lg:
-    model_g.load_state_dict(torch.load(load_generator), strict=False)
+    model_g.mod_list.load_state_dict(torch.load(load_generator), strict=True)
+    logger.info('Generatorのパラメータをロードしました。')
+    # s = torch.sum(model_g.mod_list[0].conv1.weight)
+    # print(s)
+# 層の追加
+if num_progress != 1:
+    logger.info('Generatorの層を追加します。')
+    model_g.progress(ngf, num_progress - 2)
+    model_g.to('cuda')
+    print(model_g.mod_list)
 
 model_d = Discriminator(
     ndf=ndf,
     num_progress=num_progress - 1
     ).to(device)
+print(model_d.mod_list)
 model_d.mod_list = model_d.mod_list[::-1]
 # パラメータのロード
 if args.ld:
-    model_d.load_state_dict(torch.load(load_discriminator), strict=False)
+    model_d.mod_list.load_state_dict(torch.load(load_discriminator), strict=True)
+    logger.info('Discriminatorのパラメータをロードしました。')
+# 層の追加
+if num_progress != 1:
+    logger.info('Discriminatorの層を追加します。')
+    model_d.progress(ndf, num_progress - 1)
+    model_d.to('cuda')
 model_d.mod_list = model_d.mod_list[::-1]
-print(model_d.mod_list)
+if num_progress != 1:
+    print(model_d.mod_list)
+
 
 # =========================================================================== #
 # オプティマイザの定義
@@ -263,7 +285,7 @@ optim_g = torch.optim.Adam(
     # lr=lr_g * lr_scale / batch_size,
     lr=lr_g,
     betas=[0.5, 0.999],
-    eps=1.0e-8
+    eps=1e-8
     )
 
 
@@ -276,7 +298,7 @@ optim_d = torch.optim.Adam(
     # lr=lr_d * lr_scale / batch_size,
     lr=lr_d,
     betas=[0.5, 0.999],
-    eps=1.0e-8
+    eps=1e-8
     )
 
 # パラメータのロード
@@ -297,6 +319,9 @@ result_items = [
 csv_writer.writerow(result_items)
 csv_idx = {item: i for i, item in enumerate(result_items)}
 
+criterion = nn.BCELoss()
+real_label = 1.
+fake_label = 0.
 
 # =========================================================================== #
 # 訓練
@@ -326,20 +351,21 @@ for epoch in range(num_epochs):
         #######################################################################
         # Discriminatorの訓練
         #######################################################################
+        label = torch.full(
+            (batch_size,), real_label, dtype=torch.float, device=device)
         model_d.zero_grad()
-
         # Real画像についてDを訓練
-        pred_d_real = model_d(real_images)
-        loss_d_real = F.relu(1.0 - pred_d_real).mean()
-        # loss_d_real.backward()
+        pred_d_real = model_d(real_images).view(-1)
+        loss_d_real = criterion(pred_d_real, label)
+        loss_d_real.backward()
 
         # Fake画像についてDを訓練
-        pred_d_fake = model_d(fake_images.detach())
-        loss_d_fake = F.relu(1.0 + pred_d_fake).mean()
-        # loss_d_fake.backward()
+        label.fill_(fake_label)
+        pred_d_fake = model_d(fake_images.detach()).view(-1)
+        loss_d_fake = criterion(pred_d_fake, label)
+        loss_d_fake.backward()
 
         loss_d = loss_d_real + loss_d_fake
-        loss_d.backward()
         log_loss_d.append(loss_d.item())
         optim_d.step()
 
@@ -347,8 +373,9 @@ for epoch in range(num_epochs):
         # Generatorの訓練
         #######################################################################
         model_g.zero_grad()
-        pred_g = model_d(fake_images)
-        loss_g = -pred_g.mean()
+        label.fill_(real_label)
+        pred_g = model_d(fake_images).view(-1)
+        loss_g = criterion(pred_g, label)
         loss_g.backward()
         log_loss_g.append(loss_g.item())
         optim_g.step()
@@ -400,11 +427,11 @@ if args.save and (epoch == num_epochs - 1):
     OUTPUT_MODEL_DIR.mkdir(exist_ok=True)  # モデルの出力ディレクトリを作成
     model_d.mod_list = model_d.mod_list[::-1]
     torch.save(  # Generatorのセーブ
-        model_g.state_dict(),
+        model_g.mod_list.state_dict(),
         OUTPUT_MODEL_DIR.joinpath('generator.pt')
     )
     torch.save(  # Discriminatorのセーブ
-        model_d.state_dict(),
+        model_d.mod_list.state_dict(),
         OUTPUT_MODEL_DIR.joinpath('discriminator.pt')
     )
     torch.save(  # Optimizerのセーブ

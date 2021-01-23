@@ -1,90 +1,72 @@
+from logging import getLogger
 from typing import Tuple, Union
+
 import torch
-import torch.nn as nn
+from torch import nn
+from torch.nn.utils import spectral_norm
+
+logger = getLogger(__name__)
+logger.debug('スクリプトを読み込みました。')
 
 
 def init_xavier_uniform(layer):
-    if hasattr(layer, "weight"):
-        torch.nn.init.xavier_uniform_(layer.weight)
-    if hasattr(layer, "bias"):
-        if hasattr(layer.bias, "data"):
-            layer.bias.data.fill_(0)
-
-
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('BatchNorm') != -1:
-        nn.init.normal_(m.weight.data, 1.0, 0.02)
-        nn.init.constant_(m.bias.data, 0)
-        print('initialize')
+    if isinstance(layer, (nn.Conv2d, nn.ConvTranspose2d)):
+        if hasattr(layer, "weight"):
+            torch.nn.init.xavier_uniform_(layer.weight)
+        if hasattr(layer, "bias"):
+            if hasattr(layer.bias, "data"):
+                layer.bias.data.fill_(0)
 
 
 class DBlock(nn.Module):
     def __init__(
         self, in_channels: int, out_channels: int,
-        kernel_size: Union[int, Tuple[int, int]] = 4,
-        stride: Union[int, Tuple[int, int]] = 2,
-        padding: Union[int, Tuple[int, int]] = 1
-    ):
-        super().__init__()
-        self.conv1 = nn.utils.spectral_norm(nn.Conv2d(
-            in_channels, out_channels, kernel_size=kernel_size,
-            stride=stride, padding=padding, bias=True))
-        self.activation = nn.LeakyReLU(0.2)
-        self.conv1.apply(init_xavier_uniform)
-
-    def forward(self, x):
-        x1 = self.conv1(x)
-        x2 = self.activation(x1)
-        return x2
-
-
-class DLast(nn.Module):
-    def __init__(
-        self, in_channels: int, out_channels: int,
-        kernel_size: Union[int, Tuple[int, int]] = 4,
+        kernel_size: Union[int, Tuple[int, int]],
         stride: Union[int, Tuple[int, int]] = 1,
-        padding: Union[int, Tuple[int, int]] = 0
+        padding: Union[int, Tuple[int, int]] = 0,
+        prob_dropout: float = 0.3
     ):
         super().__init__()
-        self.conv1 = nn.utils.spectral_norm(nn.Conv2d(
-            in_channels, out_channels, kernel_size=kernel_size,
-            stride=stride, padding=padding, bias=True))
-        self.activation = nn.LeakyReLU(0.2)
-        self.conv1.apply(init_xavier_uniform)
+        self.main = nn.Sequential(
+            spectral_norm(
+                nn.Conv2d(
+                    in_channels, out_channels,
+                    kernel_size, stride, padding, bias=True)),
+            nn.LeakyReLU(0.2),
+        )
+        self.main.apply(init_xavier_uniform)  # 重みの初期化
 
-    def forward(self, x):
-        x1 = self.conv1(x)
-        x2 = self.activation(x1)
-        return x2
+    def forward(self, inputs):
+        return self.main(inputs)
 
 
 class Discriminator(nn.Module):
     def __init__(
-        self, num_progress: int,
-        ndf: int = 64
+        self, nc: int
     ):
         super().__init__()
-        # fromRGB
-        self.fromRGB = nn.Conv2d(
-                3, ndf * 2 ** (3 - num_progress),
-                kernel_size=1, stride=1, padding=0, bias=True)
-        self.fromRGB.apply(init_xavier_uniform)
-        self.mod_list = nn.ModuleList()
-        self.sigmoid = nn.Sigmoid()
-        if num_progress != 0:
-            num_progress = num_progress - 1
-        for i in range(num_progress, 0, -1):
-            self.mod_list.append(
-                DBlock(ndf * 2 ** (3 - i),  ndf * 2 ** (4 - i)))
-        self.mod_list.append(DLast(ndf * 8, 1))
+        logger.debug('Discriminatorのインスタンスを作成します。')
 
-    def progress(self, ndf, np):
-        self.mod_list.append(DBlock(ndf * 2 ** (3 - np),  ndf * 2 ** (4 - np)))
+        self.blocks = nn.Sequential(
+            # 32 -> 16
+            DBlock(nc, 32, 3, stride=2, padding=1),
+            # 16 -> 8
+            DBlock(32, 64, 3, stride=2, padding=1),
+            # 8 -> 4
+            DBlock(64, 128, 3, stride=2, padding=1),
+            # 4 -> 1
+            DBlock(128, 256, 4, stride=1, padding=0),
+        )
 
-    def forward(self, z):
-        z1 = self.fromRGB(z)
-        for i in range(len(self.mod_list)):
-            z1 = self.mod_list[i](z1)
-        z2 = self.sigmoid(z1)
-        return z2
+        self.real_fake = nn.Linear(256, 1)
+
+    def forward(
+        self, x, classes=None,
+        detach: bool = False
+    ):
+        if detach:
+            x = x.detach()
+        x = self.blocks(x)
+        h = x.view(-1, x.size(1))
+        real_fake = self.real_fake(h)
+        return real_fake

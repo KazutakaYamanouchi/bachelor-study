@@ -15,7 +15,6 @@ from time import perf_counter
 # 追加モジュール
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.parallel
 import torch.utils.data
@@ -24,12 +23,10 @@ import torchvision.transforms as transforms
 import torchvision.utils as vutils
 from tqdm import tqdm
 
+# 自作モジュール
 from models.generator import Generator
 from models.discriminator import Discriminator
-
-
-# def hypersphere(z, radius=1):
-#     return z * radius / z.norm(p=2, dim=1, keepdim=True)
+import utils.dwt as utils
 
 
 # コマンドライン引数を取得するパーサー
@@ -41,7 +38,7 @@ parser = argparse.ArgumentParser(
 # 訓練に関する引数
 parser.add_argument(
     '-b', '--batch-size', help='バッチサイズを指定します。',
-    type=int, default=250, metavar='B'
+    type=int, default=100, metavar='B'
 )
 parser.add_argument(
     '-e', '--num-epochs', help='学習エポック数を指定します。',
@@ -49,14 +46,14 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    '-np', '--num-progress', help='層の数を指定します。(1~4)',
-    type=int, default=1
-)
-
-parser.add_argument(
     '--lr-scale', help='初期学習率のスケーリング係数を指定します。'
     'lr = default_lr * lr_scale / batch_size',
     type=int, default=0
+)
+
+parser.add_argument(
+    '-np', '--num_progress', help='何回dwtを適用するかを指定します。',
+    type=int, default=5
 )
 
 parser.add_argument(
@@ -98,13 +95,18 @@ parser.add_argument(
 )
 parser.add_argument(
     '--sample-interval', help='生成画像の保存間隔をエポック数で指定します。',
-    type=int, default=4,
+    type=int, default=10,
 )
 
 
 #   モデルの保存
 parser.add_argument(
     '--save', help='訓練したモデルを保存します。',
+    action='store_true'
+)
+
+parser.add_argument(
+    '--lossy', help='可逆モードで実行します。',
     action='store_true'
 )
 
@@ -116,16 +118,6 @@ parser.add_argument(
     '--ld', help='指定したパスのDiscriminatorのセーブファイルを読み込みます。',
     action='store_true'
 )
-
-parser.add_argument(
-    '--log', help='指定したパスのOptimizer_gのセーブファイルを読み込みます。',
-    action='store_true'
-)
-parser.add_argument(
-    '--lod', help='指定したパスのOptimizer_dのセーブファイルを読み込みます。',
-    action='store_true'
-)
-
 
 parser.add_argument(
     '--info', help='ログ表示レベルをINFOに設定し、詳細なログを表示します。',
@@ -149,10 +141,9 @@ basicConfig(
 )
 # 名前を指定してロガーを取得する
 logger = getLogger('main')
-
 batch_size = args.batch_size
-num_epochs = args.num_epochs
 num_progress = args.num_progress
+num_epochs = args.num_epochs
 workers = 2
 nc = 3
 lr_scale = args.lr_scale
@@ -164,19 +155,13 @@ ndf = 64
 
 if args.input_dir is not None:
     INPUT_DIR = Path(
-        f'./outputs/{args.dataset}/{args.input_dir}/models/{num_progress-1}')
+        f'./outputs/{args.dataset}/{args.input_dir}/models/{num_progress+1}')
 
 if args.lg:
     load_generator = INPUT_DIR.joinpath('generator.pt')
 
 if args.ld:
     load_discriminator = INPUT_DIR.joinpath('discriminator.pt')
-
-if args.lg:
-    load_optimizer_g = INPUT_DIR.joinpath('optimizer_g.pt')
-
-if args.ld:
-    load_optimizer_d = INPUT_DIR.joinpath('optimizer_d.pt')
 
 # 出力に関する定数
 if args.dir_name is None:
@@ -212,7 +197,6 @@ logger.info(f'メインデバイスとして〈{device}〉が選択されまし�
 
 logger.info('画像に適用する変換のリストを定義します。')
 data_transforms = []
-
 to_tensor = transforms.ToTensor()
 data_transforms.append(to_tensor)
 
@@ -240,41 +224,22 @@ print(len(dataset))
 # モデルの定義
 # =========================================================================== #
 model_g = Generator(
-    nz=nz, ngf=ngf,
-    num_progress=num_progress - 1
+    nz=nz, nc=nc
     ).to(device)
-print(model_g.mod_list)
+print(model_g)
 # パラメータのロード
 if args.lg:
-    model_g.mod_list.load_state_dict(torch.load(load_generator), strict=True)
+    model_g.load_state_dict(torch.load(load_generator), strict=True)
     logger.info('Generatorのパラメータをロードしました。')
-    # s = torch.sum(model_g.mod_list[0].conv1.weight)
-    # print(s)
-# 層の追加
-if num_progress != 1:
-    logger.info('Generatorの層を追加します。')
-    model_g.progress(ngf, num_progress - 2)
-    model_g.to('cuda')
-    print(model_g.mod_list)
 
 model_d = Discriminator(
-    ndf=ndf,
-    num_progress=num_progress - 1
+    nc=nc
     ).to(device)
-print(model_d.mod_list)
-model_d.mod_list = model_d.mod_list[::-1]
+print(model_d)
 # パラメータのロード
 if args.ld:
-    model_d.mod_list.load_state_dict(torch.load(load_discriminator), strict=True)
+    model_d.load_state_dict(torch.load(load_discriminator), strict=True)
     logger.info('Discriminatorのパラメータをロードしました。')
-# 層の追加
-if num_progress != 1:
-    logger.info('Discriminatorの層を追加します。')
-    model_d.progress(ndf, num_progress - 1)
-    model_d.to('cuda')
-model_d.mod_list = model_d.mod_list[::-1]
-if num_progress != 1:
-    print(model_d.mod_list)
 
 
 # =========================================================================== #
@@ -282,30 +247,16 @@ if num_progress != 1:
 # =========================================================================== #
 optim_g = torch.optim.Adam(
     model_g.parameters(),
-    # lr=lr_g * lr_scale / batch_size,
     lr=lr_g,
-    betas=[0.5, 0.999],
-    eps=1e-8
+    betas=[0.5, 0.999]
     )
-
-
-# パラメータのロード
-if args.log:
-    optim_g.load_state_dict(torch.load(load_optimizer_g))
 
 optim_d = torch.optim.Adam(
     model_d.parameters(),
-    # lr=lr_d * lr_scale / batch_size,
     lr=lr_d,
-    betas=[0.5, 0.999],
-    eps=1e-8
+    betas=[0.5, 0.999]
     )
 
-# パラメータのロード
-if args.lod:
-    optim_d.load_state_dict(torch.load(load_optimizer_d))
-
-# sample_z = hypersphere(torch.randn(64, nz, 1, 1, device=device))
 sample_z = torch.randn(args.num_samples, nz, device=device)
 
 f_results = open(
@@ -319,9 +270,8 @@ result_items = [
 csv_writer.writerow(result_items)
 csv_idx = {item: i for i, item in enumerate(result_items)}
 
-criterion = nn.BCELoss()
-real_label = 1.
-fake_label = 0.
+wavelet = utils.DWT(args.lossy)
+wavelet = wavelet.to(device)
 
 # =========================================================================== #
 # 訓練
@@ -342,30 +292,24 @@ for epoch in range(num_epochs):
     begin_time = perf_counter()  # 時間計測開始
     for i, (real_images, _) in pbar:
         real_images = real_images.to(device)
-        real_images = F.adaptive_avg_pool2d(
-            real_images, 4 * 2 ** (num_progress - 1))
-        # z = hypersphere(torch.randn(batch_size, nz, 1, 1, device=device))
+        real_images = wavelet(real_images, num_progress)
         z = torch.randn(batch_size, nz, device=device)
         fake_images = model_g(z)
 
         #######################################################################
         # Discriminatorの訓練
         #######################################################################
-        label = torch.full(
-            (batch_size,), real_label, dtype=torch.float, device=device)
         model_d.zero_grad()
-        # Real画像についてDを訓練
-        pred_d_real = model_d(real_images).view(-1)
-        loss_d_real = criterion(pred_d_real, label)
-        loss_d_real.backward()
+        # Real画像についてDを訓練,
+        pred_d_real = model_d(real_images)
+        loss_d_real = F.relu(1.0 - pred_d_real).mean()
 
         # Fake画像についてDを訓練
-        label.fill_(fake_label)
-        pred_d_fake = model_d(fake_images.detach()).view(-1)
-        loss_d_fake = criterion(pred_d_fake, label)
-        loss_d_fake.backward()
+        pred_d_fake = model_d(fake_images, detach=True)
+        loss_d_fake = F.relu(1.0 + pred_d_fake).mean()
 
         loss_d = loss_d_real + loss_d_fake
+        loss_d.backward()
         log_loss_d.append(loss_d.item())
         optim_d.step()
 
@@ -373,9 +317,8 @@ for epoch in range(num_epochs):
         # Generatorの訓練
         #######################################################################
         model_g.zero_grad()
-        label.fill_(real_label)
-        pred_g = model_d(fake_images).view(-1)
-        loss_g = criterion(pred_g, label)
+        pred_g = model_d(fake_images)
+        loss_g = -pred_g.mean()
         loss_g.backward()
         log_loss_g.append(loss_g.item())
         optim_g.step()
@@ -416,7 +359,8 @@ for epoch in range(num_epochs):
                 sample_images,
                 sample_dir.joinpath(f'{epoch}.png'),
                 nrow=int(np.sqrt(args.num_samples)),
-                range=(-1.0, 1.0)
+                range=(-1.0, 1.0),
+                normalize=True
                 )
             logger.info('画像を生成しました。')
     csv_writer.writerow(results)
@@ -425,22 +369,13 @@ OUTPUT_MODEL_DIR = OUTPUT_MODEL_DIR.joinpath(f'{num_progress}')
 if args.save and (epoch == num_epochs - 1):
 
     OUTPUT_MODEL_DIR.mkdir(exist_ok=True)  # モデルの出力ディレクトリを作成
-    model_d.mod_list = model_d.mod_list[::-1]
     torch.save(  # Generatorのセーブ
-        model_g.mod_list.state_dict(),
+        model_g.state_dict(),
         OUTPUT_MODEL_DIR.joinpath('generator.pt')
     )
     torch.save(  # Discriminatorのセーブ
-        model_d.mod_list.state_dict(),
+        model_d.state_dict(),
         OUTPUT_MODEL_DIR.joinpath('discriminator.pt')
-    )
-    torch.save(  # Optimizerのセーブ
-        optim_d.state_dict(),
-        OUTPUT_MODEL_DIR.joinpath('optimizer_d.pt')
-    )
-    torch.save(  # Optimizerのセーブ
-        optim_g.state_dict(),
-        OUTPUT_MODEL_DIR.joinpath('optimizer_g.pt')
     )
 f_results.close()
 f_outputs.close()

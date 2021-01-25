@@ -124,14 +124,15 @@ class DWT(nn.Module):
             image: 画素値0.0-1.0の画像バッチ
         '''
         # DCレベルシフト
-        shifted = (image + 1) / 2
+        # shifted = (image + 1) / 2
         # YCbCr変換(DCレベルシフト済み)
-        ll = self.to_ycbcr(shifted)
+        # ll = self.to_ycbcr(shifted)
+        ll = self.to_ycbcr(image)
         # DWT k回
         for i in range(k):
             ll = self.dwt_vertical(self.dwt_horizontal(ll))
         # RGB変換(DCレベルシフト済み)
         rgb_shifted = self.to_rgb(ll)
         # 逆DCレベルシフト
-        rgb = rgb_shifted * 2 - 1
-        return rgb
+        # rgb = rgb_shifted * 2 - 1
+        return rgb_shifted

@@ -141,6 +141,7 @@ class DCT(nn.Module):
         image_shifted = (images + 1) / 2
         coefs_y, coefs_cbcr = self.encoder(image_shifted)
         coefs_cb, coefs_cr = coefs_cbcr[:, :64], coefs_cbcr[:, 64:]
+
         # 係数がFlattenされているので二次元に戻す
         coefs_y = coefs_y.reshape(-1, 8, 8, coefs_y.size(2), coefs_y.size(3))
         coefs_cb = coefs_cb.reshape(

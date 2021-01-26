@@ -26,8 +26,9 @@ from tqdm import tqdm
 # 自作モジュール
 from models.generator import Generator
 from models.discriminator import Discriminator
-import utils.dwt as utils
-
+import utils.dwt as dwt
+import utils.dct as dct
+import utils.fft as fft
 
 # コマンドライン引数を取得するパーサー
 parser = argparse.ArgumentParser(
@@ -52,7 +53,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    '-np', '--num_progress', help='何回dwtを適用するかを指定します。',
+    '-np', '--num_progress', help='何層分周波数分解するかを指定します。(5~0)',
     type=int, default=5
 )
 
@@ -100,6 +101,16 @@ parser.add_argument(
 
 
 #   モデルの保存
+parser.add_argument(
+    '--dct', help='dctにて周波数分解を実行します。',
+    action='store_true'
+)
+
+parser.add_argument(
+    '--fft', help='fftにて周波数分解を実行します。',
+    action='store_true'
+)
+
 parser.add_argument(
     '--save', help='訓練したモデルを保存します。',
     action='store_true'
@@ -212,6 +223,9 @@ dataset = dset.CIFAR10(
             root=args.data_path, train=True,
             transform=transforms.Compose(data_transforms), download=True)
 
+# データセットの1番目の画像から色数を取得
+nc, h, w = dataset[0][0].size()  # dataset[0][0].size() = (C, H, W)
+
 dataloader = torch.utils.data.DataLoader(
     dataset, batch_size=batch_size,
     shuffle=True, drop_last=True, num_workers=workers)
@@ -229,7 +243,9 @@ model_g = Generator(
 print(model_g)
 # パラメータのロード
 if args.lg:
-    model_g.load_state_dict(torch.load(load_generator), strict=True)
+    checkpoint = torch.load(load_generator)
+    state_dict = checkpoint['model_state_dict']
+    model_g.load_state_dict(state_dict)
     logger.info('Generatorのパラメータをロードしました。')
 
 model_d = Discriminator(
@@ -238,7 +254,9 @@ model_d = Discriminator(
 print(model_d)
 # パラメータのロード
 if args.ld:
-    model_d.load_state_dict(torch.load(load_discriminator), strict=True)
+    checkpoint = torch.load(load_discriminator)
+    state_dict = checkpoint['model_state_dict']
+    model_d.load_state_dict(state_dict)
     logger.info('Discriminatorのパラメータをロードしました。')
 
 
@@ -270,7 +288,12 @@ result_items = [
 csv_writer.writerow(result_items)
 csv_idx = {item: i for i, item in enumerate(result_items)}
 
-wavelet = utils.DWT(args.lossy)
+if args.dct:
+    wavelet = dct.DCT()
+elif args.fft:
+    wavelet = fft.FFT()
+else:
+    wavelet = dwt.DWT(args.lossy)
 wavelet = wavelet.to(device)
 
 # =========================================================================== #
@@ -370,11 +393,30 @@ if args.save and (epoch == num_epochs - 1):
 
     OUTPUT_MODEL_DIR.mkdir(exist_ok=True)  # モデルの出力ディレクトリを作成
     torch.save(  # Generatorのセーブ
-        model_g.state_dict(),
+        {
+            'model_state_dict': model_g.state_dict(),
+            'optimizer_state_dict': optim_g.state_dict(),
+            'lrs_state_dict': lr_g,
+            'last_epoch': epoch,
+            'batch_size': batch_size,
+            'dataset': args.dataset,
+            'nz': nz,
+            'nc': nc,
+            'lossy': args.lossy
+        },
         OUTPUT_MODEL_DIR.joinpath('generator.pt')
     )
     torch.save(  # Discriminatorのセーブ
-        model_d.state_dict(),
+        {
+            'model_state_dict': model_d.state_dict(),
+            'optimizer_state_dict': optim_d.state_dict(),
+            'lrs_state_dict': lr_d,
+            'last_epoch': epoch,
+            'batch_size': batch_size,
+            'dataset': args.dataset,
+            'nc': nc,
+            'lossy': args.lossy
+        },
         OUTPUT_MODEL_DIR.joinpath('discriminator.pt')
     )
 f_results.close()

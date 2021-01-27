@@ -1,4 +1,3 @@
-from math import ceil
 import numpy as np
 import torch
 import torch.nn as nn
@@ -131,42 +130,31 @@ class JPEGDecoder(nn.Module):
 
 
 class DCT(nn.Module):
-    def __init__(self,):
+    def __init__(self, k: int = 1):
         super().__init__()
         self.encoder = JPEGEncoder()
         self.decoder = JPEGDecoder()
+        lpf = torch.zeros(8, 8, device='cuda')
+        lpf_list = [8, 6, 5, 4, 3, 2]
+        lpf_ratio = lpf_list[k]
+        lpf[:lpf_ratio, :lpf_ratio] = 1
+        lpf_shift = torch.flatten(lpf)
+        self.lpf_shifted = lpf_shift.reshape(64, 1, 1)
 
     def forward(self, images: torch.Tensor, k: int = 1) -> torch.Tensor:
         # クロマサブサンプリングでYとCbCrの解像度が異なるので別で受け取る
         image_shifted = (images + 1) / 2
         coefs_y, coefs_cbcr = self.encoder(image_shifted)
         coefs_cb, coefs_cr = coefs_cbcr[:, :64], coefs_cbcr[:, 64:]
-
-        # 係数がFlattenされているので二次元に戻す
-        coefs_y = coefs_y.reshape(-1, 8, 8, coefs_y.size(2), coefs_y.size(3))
-        coefs_cb = coefs_cb.reshape(
-            -1, 8, 8, coefs_cb.size(2), coefs_cb.size(3))
-        coefs_cr = coefs_cr.reshape(
-            -1, 8, 8, coefs_cr.size(2), coefs_cr.size(3))
-        # Low Pass Filter (JPEGのDCT係数は左上が低周波，右下が高周波）
-        lpf_ratio = ceil(32 / 2 ** k)
-        coefs_y[:, 8 * lpf_ratio:] = 0
-        coefs_y[:, :, 8 * lpf_ratio:] = 0
-        coefs_cb[:, 8 * lpf_ratio:] = 0
-        coefs_cb[:, :, 8 * lpf_ratio:] = 0
-        coefs_cr[:, 8 * lpf_ratio:] = 0
-        coefs_cr[:, :, 8 * lpf_ratio:] = 0
-        # Flattenに戻す
-        coefs_y = coefs_y.reshape(-1, 64, coefs_y.size(3), coefs_y.size(4))
-        coefs_cb = coefs_cb.reshape(-1, 64, coefs_cb.size(3), coefs_cb.size(4))
-        coefs_cr = coefs_cr.reshape(-1, 64, coefs_cr.size(3), coefs_cr.size(4))
+        adaptted_cb = coefs_cb * self.lpf_shifted
+        adaptted_cr = coefs_cr * self.lpf_shifted
+        adaptted_y = coefs_y * self.lpf_shifted
 
         cbcr = torch.cat([
-            coefs_cb,
-            coefs_cr
+            adaptted_cb,
+            adaptted_cr
         ], dim=1)
 
-        rgb_shifted = self.decoder((coefs_y, cbcr))
+        rgb_shifted = self.decoder((adaptted_y, cbcr))
         rgb = rgb_shifted * 2 - 1
-
         return rgb

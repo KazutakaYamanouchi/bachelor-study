@@ -289,7 +289,7 @@ csv_writer.writerow(result_items)
 csv_idx = {item: i for i, item in enumerate(result_items)}
 
 if args.dct:
-    wavelet = dct.DCT()
+    wavelet = dct.DCT(num_progress)
 elif args.fft:
     wavelet = fft.FFT()
 else:
